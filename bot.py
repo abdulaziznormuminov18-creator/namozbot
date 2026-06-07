@@ -1,34 +1,29 @@
-import logging
+import telebot
+from telebot import types
+import gspread
+from google.oauth2.service_account import Credentials
 import json
 import os
 from datetime import datetime
 import pytz
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ContextTypes
-)
-import gspread
-from google.oauth2.service_account import Credentials
+import logging
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 SPREADSHEET_ID = "1zEIXv-r467FzdEetmR6qhEQSoUstNhlK"
 GROUP_ID = -1002761583094
 TIMEZONE = "Asia/Tashkent"
 
+bot = telebot.TeleBot(BOT_TOKEN)
 user_states = {}
 registered_today = set()
 
 def is_bomdod_time():
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
-    h, m = now.hour, now.minute
-    start = h * 60 + m >= 3 * 60
-    end = h * 60 + m <= 5 * 60 + 35
-    return start and end
+    minutes = now.hour * 60 + now.minute
+    return 180 <= minutes <= 335  # 03:00 dan 05:35 gacha
 
 def get_today():
     return datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
@@ -48,117 +43,120 @@ def get_sheet():
         ws.append_row(["Ism Familiya", "Username", "Sana", "Vaqt"])
     return ws
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
+@bot.message_handler(commands=['start'])
+def start(message):
+    uid = message.from_user.id
     today = get_today()
+    
     if not is_bomdod_time():
         now = datetime.now(pytz.timezone(TIMEZONE))
-        await update.message.reply_text(
-            f"Assalomu alaykum! 🌙\nHozir soat {now.strftime('%H:%M')}.\n"
-            f"Yo'qlama vaqti: 03:00—05:35\nO'sha vaqtda keling! ✅"
+        bot.reply_to(message,
+            f"Assalomu alaykum! 🌙\n"
+            f"Hozir soat {now.strftime('%H:%M')}.\n"
+            f"Yo'qlama vaqti: 03:00 — 05:35\n"
+            f"O'sha vaqtda keling! ✅"
         )
         return
+    
     if f"{uid}_{today}" in registered_today:
-        await update.message.reply_text("Bugun qatnashgansiz! ✅ JazakAllahu khayran!")
+        bot.reply_to(message, "Bugun qatnashgansiz! ✅ JazakAllahu khayran! 🤲")
         return
+    
     user_states[uid] = "waiting_name"
-    await update.message.reply_text(
-        "Assalomu alaykum! 🌅\nBomdod yo'qlamasiga xush kelibsiz!\n\n"
-        "To'liq *Ism Familiyangizni* yozing:",
-        parse_mode="Markdown"
+    bot.reply_to(message,
+        "Assalomu alaykum! 🌅\n\n"
+        "Bomdod yo'qlamasiga xush kelibsiz!\n\n"
+        "To'liq Ism Familiyangizni yozing:"
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
+@bot.message_handler(commands=['stats'])
+def stats(message):
     today = get_today()
+    count = sum(1 for k in registered_today if k.endswith(f"_{today}"))
+    bot.reply_to(message, f"📊 Bugun: {count} kishi ✅")
+
+@bot.message_handler(func=lambda m: True)
+def handle_message(message):
+    uid = message.from_user.id
+    today = get_today()
+    
     if user_states.get(uid) != "waiting_name":
-        await update.message.reply_text("Yo'qlama uchun /start bosing.")
+        bot.reply_to(message, "Yo'qlama uchun /start bosing. 👋")
         return
+    
     if not is_bomdod_time():
         user_states.pop(uid, None)
-        await update.message.reply_text("Vaqt o'tdi. Ertaga 03:00 da keling! 🌙")
+        bot.reply_to(message, "Vaqt o'tdi. Ertaga 03:00 da keling! 🌙")
         return
+    
     if f"{uid}_{today}" in registered_today:
         user_states.pop(uid, None)
-        await update.message.reply_text("Bugun qatnashgansiz! ✅")
+        bot.reply_to(message, "Bugun qatnashgansiz! ✅")
         return
-    name = update.message.text.strip()
+    
+    name = message.text.strip()
     if len(name) < 3:
-        await update.message.reply_text("To'liq ism familiya yozing. 📝")
+        bot.reply_to(message, "To'liq ism familiya yozing. 📝")
         return
-    context.user_data["name"] = name
-    kb = [[InlineKeyboardButton("✅ Bomdod namozini o'qidim", callback_data="yes")],
-          [InlineKeyboardButton("❌ Bekor", callback_data="no")]]
-    await update.message.reply_text(
-        f"*{name}*\n\nTasdiqlaysizmi?",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
+    
+    user_states[uid] = f"confirm_{name}"
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("✅ Bomdod namozini o'qidim", callback_data="yes"),
+        types.InlineKeyboardButton("❌ Bekor", callback_data="no")
+    )
+    bot.send_message(uid,
+        f"Ism: {name}\n\nTasdiqlaysizmi?",
+        reply_markup=markup
     )
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    uid = q.from_user.id
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    uid = call.from_user.id
     today = get_today()
-    if q.data == "no":
+    
+    if call.data == "no":
         user_states.pop(uid, None)
-        await q.edit_message_text("Bekor qilindi. 🌙")
+        bot.edit_message_text("Bekor qilindi. 🌙", uid, call.message.message_id)
         return
+    
+    state = user_states.get(uid, "")
+    if not state.startswith("confirm_"):
+        bot.answer_callback_query(call.id)
+        return
+    
+    name = state.replace("confirm_", "", 1)
+    
     if f"{uid}_{today}" in registered_today:
-        await q.edit_message_text("Bugun qatnashgansiz! ✅")
+        bot.edit_message_text("Bugun qatnashgansiz! ✅", uid, call.message.message_id)
         return
+    
     if not is_bomdod_time():
-        await q.edit_message_text("Vaqt o'tdi! 🌙")
+        bot.edit_message_text("Vaqt o'tdi! 🌙", uid, call.message.message_id)
         return
-    name = context.user_data.get("name", "Noma'lum")
-    uname = q.from_user.username or "yoq"
+    
+    uname = call.from_user.username or "yoq"
     now = datetime.now(pytz.timezone(TIMEZONE))
+    
     try:
         ws = get_sheet()
         ws.append_row([name, f"@{uname}", now.strftime("%Y-%m-%d"), now.strftime("%H:%M")])
         registered_today.add(f"{uid}_{today}")
         user_states.pop(uid, None)
-        await q.edit_message_text(
-            f"✅ *Qayd etildi!*\n\n👤 {name}\n📅 {now.strftime('%Y-%m-%d')}\n"
-            f"⏰ {now.strftime('%H:%M')}\n\nJazakAllahu khayran! 🤲",
-            parse_mode="Markdown"
+        bot.edit_message_text(
+            f"✅ Qayd etildi!\n\n"
+            f"👤 {name}\n"
+            f"📅 {now.strftime('%Y-%m-%d')}\n"
+            f"⏰ {now.strftime('%H:%M')}\n\n"
+            f"JazakAllahu khayran! 🤲",
+            uid, call.message.message_id
         )
     except Exception as e:
-        logger.error(e)
-        await q.edit_message_text("Xato! Qayta urinib ko'ring. 🔄")
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = get_today()
-    count = sum(1 for k in registered_today if k.endswith(f"_{today}"))
-    await update.message.reply_text(f"📊 Bugun: {count} kishi ✅")
-
-async def reminder(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        me = await context.bot.get_me()
-        await context.bot.send_message(
-            chat_id=GROUP_ID,
-            text=f"🌅 *Bomdod vaqti!*\n\nBotga kiring: @{me.username}\n⏰ 03:00—05:35",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(e)
-
-def main():
-    from telegram.ext import Application
-    import asyncio
+        logging.error(e)
+        bot.edit_message_text("Xato! Qayta urinib ko'ring. 🔄", uid, call.message.message_id)
     
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    tz = pytz.timezone(TIMEZONE)
-    from datetime import time as dtime
-    app.job_queue.run_daily(reminder, time=dtime(3, 0, tzinfo=tz))
-    
-    logger.info("Bot ishlamoqda!")
-    app.run_polling(drop_pending_updates=True)
+    bot.answer_callback_query(call.id)
 
-if __name__ == "__main__":
-    main()
+logging.info("Bot ishlamoqda!")
+bot.infinity_polling()
