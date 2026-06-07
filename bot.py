@@ -43,8 +43,12 @@ def get_sheet():
         ws.append_row(["Ism Familiya", "Username", "Sana", "Vaqt"])
     return ws
 
-@bot.message_handler(commands=['start'])
-def start(message):
+@bot.message_handler(func=lambda m: True)
+def handle_message(message):
+
+    if message.chat.type != "private":
+        return
+
     uid = message.from_user.id
     today = get_today()
     
