@@ -32,6 +32,7 @@ def get_today():
     return datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
 
 def get_zikr_sheet():
+    raise Exception("TEST123")
     logging.info(f"SPREADSHEET_ID={SPREADSHEET_ID}")
 
     creds_json = os.environ.get("GOOGLE_CREDENTIALS", "{}")
