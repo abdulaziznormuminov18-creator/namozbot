@@ -11,7 +11,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-SPREADSHEET_ID = "1zEIXv-r467FzdEetmR6qhEQSoUstNhlK"
+SPREADSHEET_ID = "1nLeSnPXHA5vJvd5oEsZlZ45mSrPg6UMzuO0CyZpzW3k"
 GROUP_ID = -1002761583094
 TIMEZONE = "Asia/Tashkent"
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))  # Sizning Telegram ID ingiz
