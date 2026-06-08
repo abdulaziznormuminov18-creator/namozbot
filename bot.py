@@ -31,7 +31,9 @@ def is_bomdod_time():
 def get_today():
     return datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
 
-def get_sheet():
+def get_zikr_sheet():
+    logging.info(f"SPREADSHEET_ID={SPREADSHEET_ID}")
+
     creds_json = os.environ.get("GOOGLE_CREDENTIALS", "{}")
     creds_dict = json.loads(creds_json)
     scopes = ["https://www.googleapis.com/auth/spreadsheets",
@@ -39,11 +41,13 @@ def get_sheet():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(SPREADSHEET_ID)
+
     try:
-        ws = sheet.worksheet("Bomdod")
+        ws = sheet.worksheet("Zikr")
     except:
-        ws = sheet.add_worksheet("Bomdod", 1000, 10)
-        ws.append_row(["Ism Familiya", "Username", "Sana", "Vaqt"])
+        ws = sheet.add_worksheet("Zikr", 2000, 10)
+        ws.append_row(["UserID", "Ism", "Username", "Sana", "Zikr", "Son", "Vaqt"])
+
     return ws
 
 def get_zikr_sheet():
